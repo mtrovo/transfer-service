@@ -98,22 +98,21 @@ public class AccountDAOImpl implements AccountDAO {
           conn.commit();
           return Mono.just(new Account(from.getId(), from.getName(), newFromBalance));
         })
-        .doFinally(acc -> conn.close())
         .map(Account::getBalance)
+        .doFinally(acc -> conn.close())
         .switchIfEmpty(
             Mono.error(() -> {
               String message = String
                   .format("Invalid accounts: %s, %s", obj.getFromAccount(), obj.getToAccount());
               return new AccountNotFound(message);
-            }));
+            }))
+        .log("dao-create-transfer");
   }
 
-  private Mono<Account> findAccount(Connection connection, Long accountID) {
-    return Mono.just(connection)
-        .map(conn ->
-            conn.createQuery(config.queries.findAccount)
-                .addParameter("id", accountID)
-                .executeAndFetchFirst(Account.class));
+  private Mono<Account> findAccount(Connection conn, Long accountID) {
+    return Mono.justOrEmpty(conn.createQuery(config.queries.findAccount)
+        .addParameter("id", accountID)
+        .executeAndFetchFirst(Account.class));
   }
 
 

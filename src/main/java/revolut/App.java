@@ -44,10 +44,10 @@ public class App {
                 .post("/accounts", startPipeline(this::createAccount))
                 .get("/accounts/{accountID}", startPipeline(this::getAccount))
                 .post("/accounts/{accountID}/deposits", startPipeline(this::createDeposit))
-                .post("/transfers/from/{fromAccount}/to/{toAccount}", startPipeline(this::createTransfer)
+                .post("/accounts/{fromAccount}/transfers", startPipeline(this::createTransfer)
                 ))
         .bindUntilJavaShutdown(Duration.ofSeconds(5), server -> {
-          System.out.printf("Server started at %s:%d\n", server.host(), server.port());
+          logger.info("Server started at {}:{}\n", server.host(), server.port());
         });
   }
 
@@ -142,12 +142,11 @@ public class App {
               .fromJson(str, CreateTransferRequest.class);
           obj.setFromAccount(
               Long.valueOf(Objects.requireNonNull(req.param("fromAccount"))));
-          obj.setToAccount(
-              Long.valueOf(Objects.requireNonNull(req.param("toAccount"))));
           return obj;
         })
         .singleOrEmpty()
-        .flatMap(accountController::createTransfer);
+        .flatMap(accountController::createTransfer)
+        .log("create-transfer");
   }
 }
 
