@@ -50,3 +50,11 @@ application {
     // Define the main class for the application
     mainClassName = "revolut.App"
 }
+
+val jar by tasks.getting(Jar::class) {
+    manifest {
+        attributes["Main-Class"] = "com.package.YourClass"
+    }
+
+    from(configurations.runtime.map { if (it.isDirectory) it else zipTree(it) })
+}
