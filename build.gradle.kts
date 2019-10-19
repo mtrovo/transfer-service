@@ -53,8 +53,8 @@ application {
 
 val jar by tasks.getting(Jar::class) {
     manifest {
-        attributes["Main-Class"] = "com.package.YourClass"
+        attributes["Main-Class"] = "revolut.App"
     }
 
-    from(configurations.runtime.map { if (it.isDirectory) it else zipTree(it) })
+    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
 }

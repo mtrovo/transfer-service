@@ -9,6 +9,7 @@ import revolut.models.Account;
 import revolut.models.CreateAccountRequest;
 import revolut.models.CreateDepositRequest;
 import revolut.models.CreateTransferRequest;
+import revolut.models.DataConfig;
 
 public class AccountDAOImpl implements AccountDAO {
 
@@ -160,28 +161,4 @@ class CannotTransferSameAccount extends DataException {
   public CannotTransferSameAccount(String message) {
     super(message);
   }
-}
-
-@Data
-class DataConfig {
-
-  public ConnectionConfig connection;
-  public DaoConfigQueries queries;
-}
-
-@Data
-class DaoConfigQueries {
-
-  public String createAccount;
-  public String findAccount;
-  public String createTransaction;
-  public String updateBalance;
-}
-
-@Data
-class ConnectionConfig {
-
-  public String url;
-  public String user;
-  public String password;
 }

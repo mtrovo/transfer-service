@@ -34,6 +34,10 @@ To run the project run:
 ```
 ./gradlew run
 ```
-
 This should install all dependencies and run the project on `localhost:8080`.
+
+Alternatively you can also use the provided fat jar on the root path as following:
+```
+java -jar transfer-service.jar
+```
 

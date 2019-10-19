@@ -4,6 +4,7 @@
 package revolut;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 import com.moandjiezana.toml.Toml;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import java.io.InputStream;
@@ -17,13 +18,16 @@ import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
+import reactor.netty.DisposableServer;
 import reactor.netty.http.server.HttpServer;
 import org.sql2o.Sql2o;
 import reactor.netty.http.server.HttpServerRequest;
 import reactor.netty.http.server.HttpServerResponse;
+import revolut.models.ConnectionConfig;
 import revolut.models.CreateAccountRequest;
 import revolut.models.CreateDepositRequest;
 import revolut.models.CreateTransferRequest;
+import revolut.models.DataConfig;
 
 public class App {
 
@@ -31,13 +35,11 @@ public class App {
 
   Gson gson = new Gson();
   final AccountController accountController;
+  private final HttpServer server;
 
   public App(AccountController accountController) {
     this.accountController = accountController;
-  }
-
-  public void run() {
-    HttpServer.create()
+    server = HttpServer.create()
         .port(8080)
         .route(routes ->
             routes
@@ -45,10 +47,17 @@ public class App {
                 .get("/accounts/{accountID}", startPipeline(this::getAccount))
                 .post("/accounts/{accountID}/deposits", startPipeline(this::createDeposit))
                 .post("/accounts/{fromAccount}/transfers", startPipeline(this::createTransfer)
-                ))
-        .bindUntilJavaShutdown(Duration.ofSeconds(5), server -> {
+                ));
+  }
+
+  public void run() {
+    server.bindUntilJavaShutdown(Duration.ofSeconds(5), server -> {
           logger.info("Server started at {}:{}\n", server.host(), server.port());
         });
+  }
+
+  public DisposableServer bindNow() {
+    return server.bindNow();
   }
 
   private BiFunction<? super HttpServerRequest, ? super HttpServerResponse, ? extends Publisher<Void>> startPipeline(
@@ -71,8 +80,11 @@ public class App {
   private Mono<Publisher<Void>> errorHandler(HttpServerResponse resp,
       Mono<Publisher<Void>> pipeline) {
     return pipeline
-        .onErrorResume(AccountNotFound.class, basicErrorHandler(resp, HttpResponseStatus.NOT_FOUND))
+        .onErrorResume(AccountNotFound.class,
+            basicErrorHandler(resp, HttpResponseStatus.NOT_FOUND))
         .onErrorResume(InsufficientFunds.class,
+            basicErrorHandler(resp, HttpResponseStatus.UNPROCESSABLE_ENTITY))
+        .onErrorResume(BadInputException.class,
             basicErrorHandler(resp, HttpResponseStatus.UNPROCESSABLE_ENTITY))
         .onErrorResume(CannotTransferSameAccount.class,
             basicErrorHandler(resp, HttpResponseStatus.UNPROCESSABLE_ENTITY));
@@ -87,24 +99,14 @@ public class App {
     };
   }
 
-  public static void main(String[] args) {
-    var dataConfig = createDataConfig();
-    var conn = createDB(dataConfig);
-    var dao = new AccountDAOImpl(conn, dataConfig);
-    var controller = new AccountController(dao);
-    var app = new App(controller);
-    app.run();
-  }
-
-  private static DataConfig createDataConfig() {
+  static DataConfig createDataConfig() {
     InputStream configIS = ClassLoader.getSystemResourceAsStream("data.toml");
     Toml toml = new Toml().read(configIS);
     return toml.to(DataConfig.class);
   }
 
-  private static Sql2o createDB(DataConfig config) {
-    ConnectionConfig c = config.connection;
-    return new Sql2o(c.url, c.user, c.password);
+  static Sql2o createDB(ConnectionConfig config) {
+    return new Sql2o(config.url, config.user, config.password);
   }
 
   private Mono<?> createAccount(HttpServerRequest req, HttpServerResponse resp) {
@@ -112,7 +114,8 @@ public class App {
         .asString()
         .map(str -> gson.fromJson(str, CreateAccountRequest.class))
         .singleOrEmpty()
-        .flatMap(accountController::createAccount);
+        .flatMap(accountController::createAccount)
+        .doOnSuccess(ign -> resp.status(HttpResponseStatus.CREATED));
   }
 
   private Mono<?> getAccount(HttpServerRequest req, HttpServerResponse res) {
@@ -124,11 +127,15 @@ public class App {
     return req.receive()
         .asString()
         .map(str -> {
-          CreateDepositRequest obj = gson
-              .fromJson(str, CreateDepositRequest.class);
-          obj.setAccountID(
-              Long.valueOf(Objects.requireNonNull(req.param("accountID"))));
-          return obj;
+          try {
+            CreateDepositRequest obj = gson
+                .fromJson(str, CreateDepositRequest.class);
+            obj.setAccountID(
+                Long.valueOf(Objects.requireNonNull(req.param("accountID"))));
+            return obj;
+          } catch (JsonSyntaxException | NumberFormatException e) {
+            throw new BadInputException("Invalid input", e);
+          }
         })
         .singleOrEmpty()
         .flatMap(accountController::createDeposit);
@@ -138,15 +145,29 @@ public class App {
     return req.receive()
         .asString()
         .map(str -> {
-          CreateTransferRequest obj = gson
-              .fromJson(str, CreateTransferRequest.class);
-          obj.setFromAccount(
-              Long.valueOf(Objects.requireNonNull(req.param("fromAccount"))));
-          return obj;
+          try {
+            CreateTransferRequest obj = gson
+                .fromJson(str, CreateTransferRequest.class);
+            obj.setFromAccount(
+                Long.valueOf(Objects.requireNonNull(req.param("fromAccount"))));
+            return obj;
+          } catch (JsonSyntaxException | NumberFormatException e) {
+            throw new BadInputException("Invalid input", e);
+          }
         })
         .singleOrEmpty()
         .flatMap(accountController::createTransfer)
         .log("create-transfer");
+  }
+
+
+  public static void main(String[] args) {
+    var dataConfig = createDataConfig();
+    var conn = createDB(dataConfig.connection);
+    var dao = new AccountDAOImpl(conn, dataConfig);
+    var controller = new AccountController(dao);
+    var app = new App(controller);
+    app.run();
   }
 }
 
@@ -155,4 +176,11 @@ public class App {
 class APIError {
 
   public final String message;
+}
+
+class BadInputException extends RuntimeException {
+
+  public BadInputException(String message, Throwable cause) {
+    super(message, cause);
+  }
 }

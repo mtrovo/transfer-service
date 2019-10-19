@@ -1,0 +1,21 @@
+[connection]
+url = "jdbc:h2:./build/tmp/data:accounts;mode=mysql;INIT=RUNSCRIPT FROM 'classpath:/sql/create_schema.sql';"
+user = ""
+password = ""
+
+[queries]
+createAccount = """
+INSERT INTO accounts SET name = :name, balance = 0.0;
+"""
+
+updateBalance = """
+UPDATE accounts SET balance = :balance WHERE id = :id;
+"""
+
+findAccount = """
+SELECT * FROM accounts WHERE id = :id;
+"""
+
+createTransaction = """
+INSERT INTO transactions SET from_acc = :from_acc, to_acc = :to_acc, amount = :amount;
+"""
